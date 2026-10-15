@@ -22,11 +22,25 @@ def test_docker_context_excludes_secrets_and_local_environments():
     assert "!src/**" in dockerignore
 
 
-def test_compose_runs_migrations_before_the_api_with_runtime_hardening():
+def test_compose_requires_explicit_migrations_and_hardens_runtime():
     compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "service_completed_successfully" in compose
+    assert 'profiles: ["migration"]' in compose
     assert 'command: ["alembic", "upgrade", "head"]' in compose
     assert 'command: ["python", "-m", "app.services.job_dispatcher"]' in compose
     assert compose.count("read_only: true") == 4
     assert compose.count("no-new-privileges:true") == 4
+    assert '"127.0.0.1:8000:8000"' in compose
+    assert '"127.0.0.1:5432:5432"' in compose
+    assert '"127.0.0.1:6379:6379"' in compose
+    assert "service_completed_successfully" not in compose
+
+
+def test_ci_runs_for_the_main_and_cloudops_feature_branches():
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow.count("branches: [main, feature/cloudops-jobs]") == 2
+    assert "permissions:\n  contents: read" in workflow
+    assert "Check tracked files for common secret formats" in workflow

@@ -15,7 +15,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
 
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
     volumes:
       - redis_data:/data
@@ -51,6 +51,7 @@ services:
     command: ["alembic", "upgrade", "head"]
     env_file: .env
     environment: *api-environment
+    profiles: ["migration"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,12 +72,12 @@ services:
     env_file: .env
     environment: *api-environment
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     init: true
     read_only: true
     tmpfs:
@@ -97,8 +98,8 @@ services:
     env_file: .env
     environment: *api-environment
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     init: true
@@ -127,8 +128,8 @@ services:
     env_file: .env
     environment: *api-environment
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     init: true

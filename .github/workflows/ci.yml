@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/cloudops-jobs]
   pull_request:
-    branches: [main]
+    branches: [main, feature/cloudops-jobs]
   workflow_dispatch:
 
 permissions:
@@ -55,6 +55,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+
+      - name: Check tracked files for common secret formats
+        run: |
+          if git grep -I -l -E -e '-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(gh[pousr]_[A-Za-z0-9]{20,})|xox[baprs]-[0-9A-Za-z-]{10,}' -- . >/dev/null; then
+            echo "::error::A common private-key or credential format was found in tracked files. Remove it and rotate the credential."
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v6

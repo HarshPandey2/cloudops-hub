@@ -33,7 +33,11 @@ The command performs these idempotent steps:
    `SECRET_KEY`. An existing `.env` is never overwritten.
 2. Installs the exact locked development dependencies.
 3. Starts PostgreSQL and Redis and waits for their health checks.
-4. Applies all Alembic migrations.
+
+Setup deliberately does not apply migrations. Review each pending migration
+and take a database backup before applying it. For an existing or valuable
+database, follow your normal backup and restore verification procedure first.
+Then apply changes explicitly with `python scripts/dev.py migrate`.
 
 To use PostgreSQL and Redis outside Docker, set `DATABASE_URL` and `REDIS_URL`
 in `.env` first and run:
@@ -52,16 +56,21 @@ Open <http://127.0.0.1:8000/docs>. To create a local user, call `POST
 /register/` from Swagger UI; the repository intentionally does not ship a
 shared demo password.
 
-To exercise the production image locally, start the complete Compose stack:
+To exercise the production image locally, first review the migration files and
+back up any existing database, then apply migrations and start the stack:
 
 ```bash
+docker compose --profile migration run --rm migrate
 python scripts/dev.py stack-up
 ```
 
-The one-shot `migrate` service applies migrations before `api` starts. The API
-container runs without root privileges, Linux capabilities, or a writable root
-filesystem. Inspect it with `docker compose ps` and `docker compose logs api`,
-then stop it without deleting database data using `docker compose down`.
+Compose binds PostgreSQL, Redis, and the API ports to loopback only. The
+`migrate` service uses the same locked production image, but its migration
+profile prevents ordinary `docker compose up` from applying schema changes.
+The API container runs without root privileges, Linux capabilities, or a
+writable root filesystem. Inspect it with `docker compose ps` and
+`docker compose logs api`, then stop it without deleting database data using
+`docker compose down`.
 
 The full stack also starts the Celery `worker` service. Follow its logs with
 `docker compose logs -f worker`; the worker health check uses Celery's worker
@@ -75,7 +84,7 @@ setup`:
 uv run celery -A app.workers.celery_app:celery_app worker -l INFO -Q jobs
 ```
 
-Run pending schema changes with `python scripts/dev.py migrate`. The API and
+Run reviewed schema changes with `python scripts/dev.py migrate`. The API and
 worker read the same `DATABASE_URL` and `CELERY_BROKER_URL`; the Compose stack
 sets container-local URLs while `.env.example` provides local host URLs. The
 setup helper generates a local PostgreSQL password when it creates `.env`.

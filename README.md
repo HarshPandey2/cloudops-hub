@@ -47,10 +47,12 @@ cd fastapi-production-api
 python scripts/dev.py setup
 ```
 
-The setup command creates `.env` with a generated secret, installs locked
-dependencies, starts PostgreSQL and Redis, waits for them to become healthy, and applies
-migrations. It never overwrites an existing `.env`. To use existing dependency
-services, configure `DATABASE_URL` and `REDIS_URL`, then add `--skip-docker`.
+The setup command creates `.env` with generated local secrets, installs locked
+dependencies, and starts PostgreSQL and Redis. It never overwrites an existing
+`.env` and deliberately does not apply migrations. Review pending migration
+files and back up existing data before applying schema changes with
+`python scripts/dev.py migrate`. To use existing dependency services, configure
+`DATABASE_URL` and `REDIS_URL`, then add `--skip-docker`.
 
 ### 2. Run
 
@@ -77,8 +79,11 @@ To build and run the complete containerized development stack instead:
 python scripts/dev.py stack-up
 ```
 
-The helper creates `.env` with generated local secrets when needed. Compose
-runs migrations once before starting the non-root API container.
+The helper creates `.env` with generated local secrets when needed. For the
+container stack, review migration files and back up existing data, then run
+`docker compose --profile migration run --rm migrate` before
+`python scripts/dev.py stack-up`. The migration profile keeps regular Compose
+startup from changing the database schema implicitly.
 
 ## Documentation map
 
@@ -229,8 +234,8 @@ Supported types and payloads:
 | `data.process` | `{"values": [1, 2.5, 3]}` (1–1,000 finite values) | count, sum, minimum, maximum, average |
 | `system.health` | `{}` | status and Python version |
 
-Start the complete local Docker stack with `python scripts/dev.py stack-up`.
-The migration service runs before the API, worker, and dispatcher. To run the API,
+After applying reviewed migrations, start the complete local Docker stack with
+`python scripts/dev.py stack-up`. To run the API,
 worker, and dispatcher as local processes instead, run `python scripts/dev.py setup`, then start
 `uv run celery -A app.workers.celery_app:celery_app worker -l INFO -Q jobs` and
 `python -m app.services.job_dispatcher` and `python scripts/dev.py serve` in
@@ -352,6 +357,9 @@ for safety guards, starting thresholds, and a staged workload methodology.
 
 CI runs against PostgreSQL 17 rather than silently substituting SQLite. It also
 verifies that the built wheel contains and can import the application.
+CI checks tracked files for common private-key and credential formats and runs
+the locked dependency vulnerability audit. These checks do not replace rotating
+a credential if one was exposed.
 
 ## Production deployment
 

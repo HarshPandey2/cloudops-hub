@@ -80,7 +80,7 @@ def test_ensure_env_does_not_overwrite_existing_file(monkeypatch, tmp_path):
     )
 
 
-def test_setup_prepares_dependencies_database_and_migrations(monkeypatch):
+def test_setup_prepares_dependencies_without_applying_migrations(monkeypatch):
     monkeypatch.setattr(dev, "require_command", lambda _: None)
     monkeypatch.setattr(dev, "require_docker_engine", lambda: None)
     monkeypatch.setattr(dev, "ensure_env", lambda: True)
@@ -92,7 +92,6 @@ def test_setup_prepares_dependencies_database_and_migrations(monkeypatch):
     assert commands == [
         ["uv", "sync", "--locked", "--all-groups"],
         ["docker", "compose", "up", "-d", "--wait", "postgres", "redis"],
-        ["uv", "run", "alembic", "upgrade", "head"],
     ]
 
 
@@ -108,7 +107,6 @@ def test_setup_can_use_an_existing_database(monkeypatch):
     assert required_commands == ["uv"]
     assert commands == [
         ["uv", "sync", "--locked", "--all-groups"],
-        ["uv", "run", "alembic", "upgrade", "head"],
     ]
 
 

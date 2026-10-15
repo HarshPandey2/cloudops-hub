@@ -5,6 +5,10 @@
 !LICENSE
 !src/
 !src/**
+src/**/__pycache__/
+src/**/*.py[cod]
 !alembic.ini
 !alembic/
 !alembic/**
+alembic/**/__pycache__/
+alembic/**/*.py[cod]

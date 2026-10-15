@@ -154,8 +154,11 @@ def setup(*, skip_docker: bool = False) -> None:
         require_docker_engine()
         run_command(["docker", "compose", "up", "-d", "--wait", "postgres", "redis"])
 
-    run_command(["uv", "run", "alembic", "upgrade", "head"])
-    print("\nSetup complete. Start the API with: python scripts/dev.py serve")
+    print(
+        "\nDependencies are ready. Review pending migrations and back up any "
+        "existing database before running: python scripts/dev.py migrate."
+    )
+    print("Start the API with: python scripts/dev.py serve")
 
 
 def serve() -> None:
