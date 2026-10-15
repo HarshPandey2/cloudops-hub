@@ -1,8 +1,8 @@
 import asyncio
+import os
 
 import pytest
 
-from app.core.config import settings
 from benchmarks.db import (
     BenchmarkSafetyError,
     PoolObserver,
@@ -84,7 +84,11 @@ def test_summary_schema_is_stable_and_counts_errors():
 
 
 def test_sync_and_async_prototypes_run_against_isolated_postgres():
-    database_url = settings.DATABASE_URL
+    database_url = os.environ.get("BENCHMARK_DATABASE_URL")
+    if not database_url:
+        pytest.skip(
+            "BENCHMARK_DATABASE_URL must point to a dedicated local benchmark database"
+        )
     config = RunConfig(
         iterations=8,
         warmup=2,

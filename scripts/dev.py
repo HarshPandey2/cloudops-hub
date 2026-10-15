@@ -8,6 +8,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -139,12 +140,15 @@ def database_down() -> None:
 
 def check() -> None:
     require_command("uv")
+    pip_audit_cache = (
+        Path(tempfile.gettempdir()) / "fastapi-production-api-pip-audit-cache"
+    )
     commands = [
         ["uv", "run", "ruff", "check", "."],
         ["uv", "run", "ruff", "format", "--check", "."],
         ["uv", "run", "alembic", "upgrade", "head"],
         ["uv", "run", "pytest", "--cov-report=xml"],
-        ["uv", "run", "pip-audit"],
+        ["uv", "run", "pip-audit", "--cache-dir", str(pip_audit_cache)],
         ["uv", "build"],
     ]
     for command in commands:

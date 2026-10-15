@@ -8,6 +8,8 @@ from app.db.base import Base
 from app.models import (
     AccountActionToken,
     ExternalIdentity,
+    Job,
+    JobEvent,
     MFARecoveryCode,
     OIDCTransaction,
     OutboxMessage,

@@ -37,7 +37,7 @@ dependencies = [
     "psycopg[binary]>=3.3.4",
     "prometheus-client>=0.25.0",
     "pydantic-settings>=2.14.2",
-    "pyjwt>=2.13.0",
+    "pyjwt>=2.15.0",
     "pyotp>=2.10.0,<3",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.32",
@@ -72,10 +72,13 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = ["app", "fastapi_production_api"]
 
+[tool.uv]
+constraint-dependencies = ["urllib3>=2.8.0"]
+
 [dependency-groups]
 dev = [
     "asyncpg>=0.31.0,<1",
-    "httpx2>=2.7.0",
+    "httpx2>=2.12.0",
     "pip-audit>=2.9.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.0.0",

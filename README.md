@@ -187,11 +187,25 @@ and safe extension points.
 | `POST` | `/auth/oidc/link/authorize` | Begin explicit authenticated identity linking |
 | `GET` | `/auth/oidc/identities` | List linked external identity providers |
 | `GET` | `/auth/me` | Return the authenticated user |
+| `POST` | `/jobs` | Submit a queued job |
+| `GET` | `/jobs` | List your jobs with status filtering and pagination |
+| `GET` | `/jobs/{job_id}` | Retrieve your job details |
+| `GET` | `/jobs/{job_id}/history` | Retrieve your job lifecycle history |
+| `POST` | `/jobs/{job_id}/cancel` | Cancel your queued job |
 | `GET` | `/admin/users` | List users as an admin |
 | `PATCH` | `/admin/users/{user_id}/status` | Disable or re-enable a user and revoke sessions on disable |
 
 The generated OpenAPI document at `/docs` is the source of truth for the full
 request and response schemas.
+
+### Job management (Phase 1)
+
+Apply migrations with `python scripts/dev.py setup` (or `uv run alembic upgrade
+head` after configuring `DATABASE_URL`). Submit and inspect jobs using the
+authenticated examples in [API_EXAMPLES.md](API_EXAMPLES.md). Phase 1 stores
+jobs in PostgreSQL and records submission/cancellation history; execution,
+retry operations, and Celery workers are planned for Phase 2. A queued job can
+be cancelled; other states return `409` when cancellation is requested.
 
 ## Durable email worker
 

@@ -88,6 +88,7 @@ def test_setup_can_use_an_existing_database(monkeypatch):
 
 def test_check_matches_the_repository_quality_gate(monkeypatch):
     monkeypatch.setattr(dev, "require_command", lambda _: None)
+    monkeypatch.setattr(dev.tempfile, "gettempdir", lambda: "C:/tmp")
     commands = []
     monkeypatch.setattr(dev, "run_command", commands.append)
 
@@ -98,7 +99,13 @@ def test_check_matches_the_repository_quality_gate(monkeypatch):
         ["uv", "run", "ruff", "format", "--check", "."],
         ["uv", "run", "alembic", "upgrade", "head"],
         ["uv", "run", "pytest", "--cov-report=xml"],
-        ["uv", "run", "pip-audit"],
+        [
+            "uv",
+            "run",
+            "pip-audit",
+            "--cache-dir",
+            str(Path("C:/tmp") / "fastapi-production-api-pip-audit-cache"),
+        ],
         ["uv", "build"],
     ]
 

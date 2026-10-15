@@ -121,6 +121,53 @@ short smoke workflow or the controlled extended matrix in
 [DATABASE_BENCHMARKS.md](DATABASE_BENCHMARKS.md). Never use production
 credentials or infer performance regressions from CI runner timings.
 
+The benchmark integration test reads `BENCHMARK_DATABASE_URL` and never falls
+back to the application's `DATABASE_URL`. Provision a dedicated, empty local
+PostgreSQL database such as `fastapi_bench_db`, verify its host and contents,
+then set the variable for the test process. The fixture truncates its tables and
+the test drops the entire `fastapi_benchmark` schema during cleanup, so never
+target a database that contains useful objects in that schema:
+
+```powershell
+$env:BENCHMARK_DATABASE_URL = "postgresql+psycopg://<user>:<password>@localhost:5432/fastapi_bench_db"
+uv run pytest tests/test_database_benchmark.py
+```
+
+The URL guard rejects non-PostgreSQL, non-local, and names without `test`,
+`bench`, `local`, or `dev`. The test owns only the `fastapi_benchmark` schema.
+Without a dedicated URL, the database-writing benchmark test is skipped; its
+safety guard remains enabled.
+
+## Redis integration tests
+
+Set `REDIS_TEST_URL` only to a dedicated test Redis instance. These integration
+tests call `FLUSHDB` on the selected Redis database, so do not use the
+application's Redis service or any shared, development, or production instance.
+For example, start a separate local Redis container on port 6380, then run:
+
+```powershell
+$env:REDIS_TEST_URL = "redis://127.0.0.1:6380/0"
+uv run pytest tests/test_redis_rate_limit_integration.py tests/test_oidc_cache_integration.py
+```
+
+If `REDIS_TEST_URL` is unset, the integration tests are skipped and must not be
+reported as passed.
+
+## Windows environment overrides and uv cache
+
+Process environment variables take precedence over `.env`. If a shell or IDE
+sets `DEBUG` to a non-boolean value, remove that override or use `true` or
+`false`; the development `.env` value can then be parsed normally. Do not set
+`DEBUG` in application code to work around a shell configuration issue.
+
+If uv cannot write its default cache, point it at a user-writable temp folder
+for the command:
+
+```powershell
+$env:UV_CACHE_DIR = Join-Path $env:TEMP "fastapi-production-api-uv-cache"
+python scripts/dev.py check
+```
+
 ## Typical contribution workflow
 
 ```bash

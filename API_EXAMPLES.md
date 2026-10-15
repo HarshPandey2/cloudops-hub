@@ -214,6 +214,41 @@ Example response:
 
 Missing, malformed, expired, or otherwise invalid access tokens return `401`.
 
+## Submit and monitor jobs
+
+Submit a job with a bounded job type and JSON input payload:
+
+```bash
+curl --request POST http://127.0.0.1:8000/jobs \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}" \\
+  --header "Content-Type: application/json" \\
+  --data '{"job_type":"report.generate","input_payload":{"range":"week"}}'
+```
+
+The response includes its UUID and starts in `queued`. List only your jobs with
+optional status, limit, and offset parameters. Retrieve details and lifecycle
+history with the returned ID:
+
+```bash
+curl "http://127.0.0.1:8000/jobs?status=queued&limit=20&offset=0" \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}"
+curl "http://127.0.0.1:8000/jobs/JOB_UUID" \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}"
+curl "http://127.0.0.1:8000/jobs/JOB_UUID/history" \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+Cancel an unstarted job:
+
+```bash
+curl --request POST "http://127.0.0.1:8000/jobs/JOB_UUID/cancel" \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+All job endpoints are owner scoped; a job belonging to another account returns
+`404`. Cancellation applies while the job is queued. Execution and retries are
+not enabled in Phase 1.
+
 ## Rotate a refresh token
 
 ```bash
