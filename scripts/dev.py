@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_TEMPLATE = PROJECT_ROOT / ".env.example"
@@ -17,6 +18,7 @@ ENV_FILE = PROJECT_ROOT / ".env"
 SECRET_PLACEHOLDER = "change_this_to_a_random_secret_key"
 RATE_LIMIT_SECRET_PLACEHOLDER = "change_this_to_a_random_rate_limit_key"
 OUTBOX_SECRET_PLACEHOLDER = "change_this_to_a_random_outbox_key"
+POSTGRES_PASSWORD_PLACEHOLDER = "replace_with_generated_local_postgres_password"
 
 
 class DevelopmentError(RuntimeError):
@@ -53,9 +55,10 @@ def require_docker_engine() -> None:
 
 
 def ensure_env() -> bool:
-    """Create a local .env with a generated secret, without overwriting one."""
+    """Create a local .env with generated secrets, without overwriting one."""
     if ENV_FILE.exists():
         print("Using existing .env file.")
+        append_missing_compose_settings()
         return False
 
     template = ENV_TEMPLATE.read_text(encoding="utf-8")
@@ -63,6 +66,7 @@ def ensure_env() -> bool:
         SECRET_PLACEHOLDER not in template
         or RATE_LIMIT_SECRET_PLACEHOLDER not in template
         or OUTBOX_SECRET_PLACEHOLDER not in template
+        or POSTGRES_PASSWORD_PLACEHOLDER not in template
     ):
         raise DevelopmentError(
             ".env.example does not contain the expected secret placeholders."
@@ -73,6 +77,7 @@ def ensure_env() -> bool:
     generated_outbox_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(
         "ascii"
     )
+    generated_postgres_password = secrets.token_urlsafe(32)
     ENV_FILE.write_text(
         template.replace(SECRET_PLACEHOLDER, generated_secret, 1)
         .replace(
@@ -83,8 +88,61 @@ def ensure_env() -> bool:
         .replace(OUTBOX_SECRET_PLACEHOLDER, generated_outbox_secret, 1),
         encoding="utf-8",
     )
-    print("Created .env with a generated local SECRET_KEY.")
+    env_contents = ENV_FILE.read_text(encoding="utf-8")
+    ENV_FILE.write_text(
+        env_contents.replace(
+            POSTGRES_PASSWORD_PLACEHOLDER, generated_postgres_password
+        ),
+        encoding="utf-8",
+    )
+    print("Created .env with generated local application and database secrets.")
     return True
+
+
+def append_missing_compose_settings() -> None:
+    """Add new local worker settings while preserving existing credentials."""
+    contents = ENV_FILE.read_text(encoding="utf-8")
+    values = {
+        line.split("=", 1)[0]: line.split("=", 1)[1]
+        for line in contents.splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    defaults = {
+        "CELERY_BROKER_URL": "redis://localhost:6379/1",
+        "JOB_MAX_RETRIES": "3",
+        "JOB_RETRY_BACKOFF_SECONDS": "5",
+        "JOB_RETRY_BACKOFF_MAX_SECONDS": "300",
+        "JOB_STALE_RUNNING_SECONDS": "300",
+    }
+
+    database_url = values.get("DATABASE_URL", "")
+    parsed = urlsplit(database_url)
+    if parsed.scheme.startswith("postgresql") and parsed.hostname:
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        auth = parsed.netloc.rsplit("@", 1)[0] if "@" in parsed.netloc else ""
+        compose_netloc = f"{auth}@postgres{port}" if auth else f"postgres{port}"
+        defaults["COMPOSE_DATABASE_URL"] = urlunsplit(
+            (
+                parsed.scheme,
+                compose_netloc,
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
+        defaults["POSTGRES_USER"] = unquote(parsed.username or "fastapi_user")
+        defaults["POSTGRES_DB"] = unquote(parsed.path.lstrip("/").split("/", 1)[0])
+        if parsed.password is not None:
+            defaults["POSTGRES_PASSWORD"] = unquote(parsed.password)
+
+    missing = [f"{key}={value}" for key, value in defaults.items() if key not in values]
+    if missing:
+        ENV_FILE.write_text(
+            f"{contents.rstrip()}\n\n# Local Celery and Compose settings\n"
+            + "\n".join(missing)
+            + "\n",
+            encoding="utf-8",
+        )
 
 
 def setup(*, skip_docker: bool = False) -> None:
@@ -124,6 +182,7 @@ def migrate() -> None:
 
 def services_up() -> None:
     require_docker_engine()
+    ensure_env()
     run_command(["docker", "compose", "up", "-d", "--wait", "postgres", "redis"])
 
 

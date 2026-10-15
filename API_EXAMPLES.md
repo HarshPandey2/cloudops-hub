@@ -216,18 +216,38 @@ Missing, malformed, expired, or otherwise invalid access tokens return `401`.
 
 ## Submit and monitor jobs
 
-Submit a job with a bounded job type and JSON input payload:
+Submit one of the registered job types with its validated JSON payload:
 
 ```bash
 curl --request POST http://127.0.0.1:8000/jobs \\
   --header "Authorization: Bearer ${ACCESS_TOKEN}" \\
   --header "Content-Type: application/json" \\
-  --data '{"job_type":"report.generate","input_payload":{"range":"week"}}'
+  --data '{"job_type":"data.process","input_payload":{"values":[1,2.5,3]}}'
 ```
 
-The response includes its UUID and starts in `queued`. List only your jobs with
-optional status, limit, and offset parameters. Retrieve details and lifecycle
-history with the returned ID:
+The response includes its UUID and starts in `queued`:
+
+```json
+{
+  "id": "JOB_UUID",
+  "owner_id": 42,
+  "job_type": "data.process",
+  "input_payload": {"values": [1, 2.5, 3]},
+  "status": "queued",
+  "created_at": "2026-10-16T12:00:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "retry_count": 0,
+  "attempt_count": 0,
+  "retryable": true,
+  "output_payload": null,
+  "error_message": null
+}
+```
+
+The other supported inputs are `simulation.delay` with `{"seconds": 2}` and
+`system.health` with `{}`. List only your jobs with optional status, limit, and
+offset parameters. Retrieve details and lifecycle history with the returned ID:
 
 ```bash
 curl "http://127.0.0.1:8000/jobs?status=queued&limit=20&offset=0" \\
@@ -238,16 +258,20 @@ curl "http://127.0.0.1:8000/jobs/JOB_UUID/history" \\
   --header "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
-Cancel an unstarted job:
+Cancel a queued job or retry an eligible failed job:
 
 ```bash
 curl --request POST "http://127.0.0.1:8000/jobs/JOB_UUID/cancel" \\
   --header "Authorization: Bearer ${ACCESS_TOKEN}"
+curl --request POST "http://127.0.0.1:8000/jobs/JOB_UUID/retry" \\
+  --header "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
 All job endpoints are owner scoped; a job belonging to another account returns
-`404`. Cancellation applies while the job is queued. Execution and retries are
-not enabled in Phase 1.
+`404`. Cancellation applies only while queued. `GET /health/jobs` reports
+broker and worker availability; API readiness does not require a worker. Worker
+results and execution history are stored in PostgreSQL. Automatic and manual
+retries share the configured retry limit and exponential backoff.
 
 ## Rotate a refresh token
 

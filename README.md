@@ -168,6 +168,7 @@ and safe extension points.
 | --- | --- | --- |
 | `GET` | `/health/live` | Process liveness; no dependency checks |
 | `GET` | `/health/ready` | Traffic readiness and required dependencies |
+| `GET` | `/health/jobs` | Celery broker and worker availability |
 | `GET` | `/metrics` | Prometheus metrics; restrict to monitoring networks |
 | `POST` | `/register/` | Create a user |
 | `POST` | `/login/` | Issue access and refresh tokens |
@@ -192,20 +193,86 @@ and safe extension points.
 | `GET` | `/jobs/{job_id}` | Retrieve your job details |
 | `GET` | `/jobs/{job_id}/history` | Retrieve your job lifecycle history |
 | `POST` | `/jobs/{job_id}/cancel` | Cancel your queued job |
+| `POST` | `/jobs/{job_id}/retry` | Retry your failed job within the configured limit |
 | `GET` | `/admin/users` | List users as an admin |
 | `PATCH` | `/admin/users/{user_id}/status` | Disable or re-enable a user and revoke sessions on disable |
 
 The generated OpenAPI document at `/docs` is the source of truth for the full
 request and response schemas.
 
-### Job management (Phase 1)
+### Background job processing
 
-Apply migrations with `python scripts/dev.py setup` (or `uv run alembic upgrade
-head` after configuring `DATABASE_URL`). Submit and inspect jobs using the
-authenticated examples in [API_EXAMPLES.md](API_EXAMPLES.md). Phase 1 stores
-jobs in PostgreSQL and records submission/cancellation history; execution,
-retry operations, and Celery workers are planned for Phase 2. A queued job can
-be cancelled; other states return `409` when cancellation is requested.
+Jobs are stored in PostgreSQL. The API validates a registered job type and
+payload, commits the job, then dispatches its database ID to Celery through
+Redis. A separate worker claims the row, persists lifecycle transitions and
+results, and records each event in `job_events`. PostgreSQL is the source of
+truth; Celery result storage is disabled. A standalone dispatcher polls PostgreSQL
+for due queued jobs. It leases each bounded batch with `FOR UPDATE SKIP LOCKED`,
+then publishes to Redis. If the API or dispatcher stops after the database
+commit, the dispatcher recovers the queued row. Broker failures leave the job
+queued and schedule another publish with capped exponential backoff; the API
+returns `503` when its immediate publish fails.
+
+The lifecycle is `queued → running → succeeded` or `queued/running → failed`.
+Queued work can be cancelled safely. Failed work can be manually retried while
+the failure is retryable and the shared retry limit remains. Permanent failures
+are marked as non-retryable. Unexpected execution failures use bounded
+exponential backoff; the default allows three retry submissions, beginning
+after five seconds and capped at 300 seconds. Error summaries and event logs
+are concise and do not include payloads or exception text.
+
+Supported types and payloads:
+
+| Type | Input | Result |
+| --- | --- | --- |
+| `simulation.delay` | `{"seconds": 2}` (0–30) | completion and simulated duration |
+| `data.process` | `{"values": [1, 2.5, 3]}` (1–1,000 finite values) | count, sum, minimum, maximum, average |
+| `system.health` | `{}` | status and Python version |
+
+Start the complete local Docker stack with `python scripts/dev.py stack-up`.
+The migration service runs before the API, worker, and dispatcher. To run the API,
+worker, and dispatcher as local processes instead, run `python scripts/dev.py setup`, then start
+`uv run celery -A app.workers.celery_app:celery_app worker -l INFO -Q jobs` and
+`python -m app.services.job_dispatcher` and `python scripts/dev.py serve` in
+separate terminals. Apply later schema changes
+with `python scripts/dev.py migrate`. Inspect worker logs with
+`docker compose logs -f worker dispatcher`; stop services with
+`python scripts/dev.py db-down` (this keeps local database volumes).
+
+In Swagger, register and log in, authorize with the access token, then submit:
+
+```http
+POST /jobs
+Content-Type: application/json
+
+{"job_type":"data.process","input_payload":{"values":[1,2.5,3]}}
+```
+
+The response initially contains `status: "queued"`. Use `GET /jobs/{id}` for
+the status and result, and `GET /jobs/{id}/history` for lifecycle events. Use
+`POST /jobs/{id}/cancel` while queued or `POST /jobs/{id}/retry` after a
+retryable failure. `/health/jobs` distinguishes broker connectivity from a
+responding worker; `/health/ready` does not require a worker, so the API remains
+available while workers are stopped.
+
+`CELERY_BROKER_URL` selects the broker. `JOB_DISPATCH_POLL_SECONDS`,
+`JOB_DISPATCH_BATCH_SIZE`, and `JOB_DISPATCH_LEASE_SECONDS` control dispatcher
+polling and leases. `JOB_DISPATCH_BACKOFF_SECONDS` and
+`JOB_DISPATCH_BACKOFF_MAX_SECONDS` cap the delay between broker retries.
+Monitor `dispatcher_started`, `dispatcher_poll_failed`, and
+`job_dispatch_deferred` structured log events, plus queued-job age and dispatch
+attempt counts in PostgreSQL. Multiple dispatcher instances are safe through
+row locks and leases. `JOB_MAX_RETRIES`,
+`JOB_RETRY_BACKOFF_SECONDS`, `JOB_RETRY_BACKOFF_MAX_SECONDS`, and
+`JOB_STALE_RUNNING_SECONDS` tune retry and stale-task recovery. Redis uses JSON
+task serialization and accepts JSON content only. PostgreSQL stores retry due
+times; the dispatcher submits them only when due. A broker publish and its
+database acknowledgement cannot be atomic, so a crash in between may result in
+duplicate delivery. Workers guard execution with row locks and terminal-state
+checks; handlers should remain idempotent because execution is at-least-once.
+Unit tests use an isolated SQLite database and
+mock or eager task dispatch; optional Redis/PostgreSQL integration checks are
+documented in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Durable email worker
 

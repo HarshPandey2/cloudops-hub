@@ -27,5 +27,6 @@ def test_compose_runs_migrations_before_the_api_with_runtime_hardening():
 
     assert "service_completed_successfully" in compose
     assert 'command: ["alembic", "upgrade", "head"]' in compose
-    assert compose.count("read_only: true") == 2
-    assert compose.count("no-new-privileges:true") == 2
+    assert 'command: ["python", "-m", "app.services.job_dispatcher"]' in compose
+    assert compose.count("read_only: true") == 4
+    assert compose.count("no-new-privileges:true") == 4

@@ -63,6 +63,34 @@ container runs without root privileges, Linux capabilities, or a writable root
 filesystem. Inspect it with `docker compose ps` and `docker compose logs api`,
 then stop it without deleting database data using `docker compose down`.
 
+The full stack also starts the Celery `worker` service. Follow its logs with
+`docker compose logs -f worker`; the worker health check uses Celery's worker
+ping, while `/health/jobs` reports broker and worker availability separately.
+The API readiness check does not depend on a running worker. If you run the API
+on the host, start a worker in another terminal after `python scripts/dev.py
+setup`:
+
+```bash
+uv run celery -A app.workers.celery_app:celery_app worker -l INFO -Q jobs
+```
+
+Run pending schema changes with `python scripts/dev.py migrate`. The API and
+worker read the same `DATABASE_URL` and `CELERY_BROKER_URL`; the Compose stack
+sets container-local URLs while `.env.example` provides local host URLs. The
+setup helper generates a local PostgreSQL password when it creates `.env`.
+
+Job results and lifecycle history live in PostgreSQL, not Celery's result
+backend. Register and log in through Swagger, submit one of `simulation.delay`,
+`data.process`, or `system.health`, and inspect the job and `/history` endpoint.
+Automatic retries are bounded by `JOB_MAX_RETRIES` and use capped exponential
+backoff. Permanent failures cannot be retried; manual retries of eligible jobs
+consume the same retry budget. A queued job can be cancelled; running work
+cannot be cancelled safely. Broker rejection produces
+HTTP 503 and a persisted failed state. Unit job tests use isolated SQLite
+databases and do not require Redis. Do not run database integration tests
+unless `DATABASE_URL` points to a disposable test database; existing repository
+fixtures may write test records.
+
 ## Run durable email workers
 
 Generate a dedicated Fernet key, set `EMAIL_DELIVERY_MODE=outbox`, configure

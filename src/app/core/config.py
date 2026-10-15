@@ -35,6 +35,26 @@ class Settings(BaseSettings):
 
     REDIS_URL: SecretStr = SecretStr("")
 
+    CELERY_BROKER_URL: SecretStr = SecretStr("redis://localhost:6379/1")
+
+    JOB_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+
+    JOB_RETRY_BACKOFF_SECONDS: int = Field(default=5, gt=0, le=3600)
+
+    JOB_RETRY_BACKOFF_MAX_SECONDS: int = Field(default=300, gt=0, le=86400)
+
+    JOB_STALE_RUNNING_SECONDS: int = Field(default=300, gt=0, le=86400)
+
+    JOB_DISPATCH_POLL_SECONDS: float = Field(default=2.0, gt=0, le=60)
+
+    JOB_DISPATCH_BATCH_SIZE: int = Field(default=25, gt=0, le=500)
+
+    JOB_DISPATCH_LEASE_SECONDS: int = Field(default=30, gt=0, le=3600)
+
+    JOB_DISPATCH_BACKOFF_SECONDS: int = Field(default=2, gt=0, le=3600)
+
+    JOB_DISPATCH_BACKOFF_MAX_SECONDS: int = Field(default=300, gt=0, le=86400)
+
     REDIS_CONNECT_TIMEOUT_SECONDS: float = Field(default=1.0, gt=0, le=30)
 
     REDIS_SOCKET_TIMEOUT_SECONDS: float = Field(default=1.0, gt=0, le=30)
@@ -159,6 +179,25 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Self:
+        celery_broker = urlsplit(self.CELERY_BROKER_URL.get_secret_value())
+        if (
+            celery_broker.scheme not in {"redis", "rediss"}
+            or not celery_broker.hostname
+        ):
+            raise ValueError("CELERY_BROKER_URL must be a redis:// or rediss:// URL")
+
+        if self.JOB_RETRY_BACKOFF_MAX_SECONDS < self.JOB_RETRY_BACKOFF_SECONDS:
+            raise ValueError(
+                "JOB_RETRY_BACKOFF_MAX_SECONDS must be greater than or equal to "
+                "JOB_RETRY_BACKOFF_SECONDS"
+            )
+
+        if self.JOB_DISPATCH_BACKOFF_MAX_SECONDS < self.JOB_DISPATCH_BACKOFF_SECONDS:
+            raise ValueError(
+                "JOB_DISPATCH_BACKOFF_MAX_SECONDS must be greater than or equal to "
+                "JOB_DISPATCH_BACKOFF_SECONDS"
+            )
+
         trusted_proxies = self.FORWARDED_ALLOW_IPS.split(",")
         if self.FORWARDED_ALLOW_IPS and any(
             not value.strip() for value in trusted_proxies

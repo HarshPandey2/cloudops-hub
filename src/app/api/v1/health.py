@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.core.redis import get_redis_client
 from app.db.session import engine
+from app.workers.celery_app import celery_app
 
 router = APIRouter()
 logger = logging.getLogger("fastapi-production-api.health")
@@ -72,6 +73,37 @@ async def readiness_check():
             "status": "error",
             "checks": checks,
         },
+    )
+
+
+@router.get("/health/jobs")
+def job_worker_health_check():
+    connection = celery_app.connection_for_read()
+    try:
+        connection.ensure_connection(max_retries=0)
+        broker_ready = True
+    except Exception:
+        broker_ready = False
+        logger.warning("job_broker_health_check_failed")
+    finally:
+        connection.release()
+
+    worker_ready = False
+    if broker_ready:
+        try:
+            worker_ready = bool(celery_app.control.ping(timeout=1.0, limit=1))
+        except Exception:
+            logger.warning("job_worker_health_check_failed")
+
+    checks = {
+        "broker": "ok" if broker_ready else "unavailable",
+        "worker": "available" if worker_ready else "unavailable",
+    }
+    if broker_ready and worker_ready:
+        return {"status": "ok", "checks": checks}
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"status": "error", "checks": checks},
     )
 
 

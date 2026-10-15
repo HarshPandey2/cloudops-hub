@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +9,7 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.models.job import Job, JobEvent
 from app.models.user import User
+from app.workers.jobs import process_job
 
 client = TestClient(app)
 
@@ -43,25 +44,26 @@ def _cleanup(user_ids: list[int]) -> None:
         db.close()
 
 
-def test_job_submit_list_details_history_cancel_and_pagination():
+def test_job_submit_list_details_history_cancel_and_pagination(monkeypatch):
+    monkeypatch.setattr(process_job, "delay", lambda _: None)
     user, headers = _new_user()
     try:
         first = client.post(
             "/jobs",
             headers=headers,
-            json={"job_type": "report.generate", "input_payload": {"range": "week"}},
+            json={"job_type": "data.process", "input_payload": {"values": [1, 2]}},
         )
         second = client.post(
             "/jobs",
             headers=headers,
-            json={"job_type": "image.resize", "input_payload": {"width": 32}},
+            json={"job_type": "system.health", "input_payload": {}},
         )
         assert first.status_code == 201
         assert first.json()["status"] == "queued"
         job_id = first.json()["id"]
         db = SessionLocal()
         try:
-            db.query(Job).filter(Job.id == first.json()["id"]).update(
+            db.query(Job).filter(Job.id == UUID(job_id)).update(
                 {Job.created_at: datetime.now(UTC) - timedelta(days=1)}
             )
             db.commit()
@@ -109,14 +111,15 @@ def test_job_endpoints_require_authentication_and_validate_requests():
         _cleanup([user.id])
 
 
-def test_job_owner_isolation_for_details_history_and_cancellation():
+def test_job_owner_isolation_for_details_history_and_cancellation(monkeypatch):
+    monkeypatch.setattr(process_job, "delay", lambda _: None)
     owner, owner_headers = _new_user()
     other, other_headers = _new_user()
     try:
         created = client.post(
             "/jobs",
             headers=owner_headers,
-            json={"job_type": "report", "input_payload": {}},
+            json={"job_type": "system.health", "input_payload": {}},
         )
         job_id = created.json()["id"]
         assert client.get(f"/jobs/{job_id}", headers=other_headers).status_code == 404

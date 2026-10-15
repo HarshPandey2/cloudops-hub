@@ -73,7 +73,7 @@ def test_verification_request_commits_encrypted_outbox_message(monkeypatch):
         assert token.token_hash != payload["token"]
         assert email.encode() not in message.payload_encrypted
         assert payload["token"].encode() not in message.payload_encrypted
-        assert message.payload_expires_at == as_utc(token.expires_at)
+        assert as_utc(message.payload_expires_at) == as_utc(token.expires_at)
 
 
 def test_password_reset_request_commits_matching_outbox_message(monkeypatch):
@@ -105,7 +105,7 @@ def test_password_reset_request_commits_matching_outbox_message(monkeypatch):
         )
         assert message is not None
         assert decrypt_email_payload(message)["recipient"] == email
-        assert message.payload_expires_at == as_utc(token.expires_at)
+        assert as_utc(message.payload_expires_at) == as_utc(token.expires_at)
 
 
 def test_disabled_delivery_does_not_create_outbox(monkeypatch):

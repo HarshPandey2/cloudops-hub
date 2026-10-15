@@ -24,6 +24,9 @@ class JobResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     retry_count: int
+    attempt_count: int
+    retryable: bool
+    output_payload: dict[str, Any] | None
     error_message: str | None
 
 

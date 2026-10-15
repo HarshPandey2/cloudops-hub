@@ -20,6 +20,11 @@ def configure_env_paths(monkeypatch, tmp_path: Path) -> None:
         f"SECRET_KEY={dev.SECRET_PLACEHOLDER}\n"
         f"RATE_LIMIT_KEY_SECRET={dev.RATE_LIMIT_SECRET_PLACEHOLDER}\n"
         f"OUTBOX_ENCRYPTION_KEY={dev.OUTBOX_SECRET_PLACEHOLDER}\n"
+        f"DATABASE_URL=postgresql://user:{dev.POSTGRES_PASSWORD_PLACEHOLDER}@localhost/db\n"
+        f"COMPOSE_DATABASE_URL=postgresql://user:{dev.POSTGRES_PASSWORD_PLACEHOLDER}@postgres/db\n"
+        f"POSTGRES_PASSWORD={dev.POSTGRES_PASSWORD_PLACEHOLDER}\n"
+        "POSTGRES_USER=fastapi_user\n"
+        "POSTGRES_DB=fastapi_db\n"
         "DEBUG=true\n",
         encoding="utf-8",
     )
@@ -29,7 +34,13 @@ def configure_env_paths(monkeypatch, tmp_path: Path) -> None:
 
 def test_ensure_env_generates_secret_without_leaving_placeholder(monkeypatch, tmp_path):
     configure_env_paths(monkeypatch, tmp_path)
-    generated = iter(("generated-secret", "generated-rate-limit-secret"))
+    generated = iter(
+        (
+            "generated-secret",
+            "generated-rate-limit-secret",
+            "generated-postgres-password",
+        )
+    )
     monkeypatch.setattr(dev.secrets, "token_urlsafe", lambda _: next(generated))
     monkeypatch.setattr(dev.secrets, "token_bytes", lambda _: b"o" * 32)
 
@@ -40,18 +51,33 @@ def test_ensure_env_generates_secret_without_leaving_placeholder(monkeypatch, tm
         "SECRET_KEY=generated-secret\n"
         "RATE_LIMIT_KEY_SECRET=generated-rate-limit-secret\n"
         f"OUTBOX_ENCRYPTION_KEY={dev.base64.urlsafe_b64encode(b'o' * 32).decode()}\n"
+        "DATABASE_URL=postgresql://user:generated-postgres-password@localhost/db\n"
+        "COMPOSE_DATABASE_URL=postgresql://user:generated-postgres-password@postgres/db\n"
+        "POSTGRES_PASSWORD=generated-postgres-password\n"
+        "POSTGRES_USER=fastapi_user\n"
+        "POSTGRES_DB=fastapi_db\n"
         "DEBUG=true\n"
     )
 
 
 def test_ensure_env_does_not_overwrite_existing_file(monkeypatch, tmp_path):
     configure_env_paths(monkeypatch, tmp_path)
-    dev.ENV_FILE.write_text("SECRET_KEY=existing\n", encoding="utf-8")
+    existing = (
+        "SECRET_KEY=existing\n"
+        "DATABASE_URL=postgresql+psycopg://user:local-pass@localhost:5432/test_db\n"
+    )
+    dev.ENV_FILE.write_text(existing, encoding="utf-8")
 
     created = dev.ensure_env()
 
     assert created is False
-    assert dev.ENV_FILE.read_text(encoding="utf-8") == "SECRET_KEY=existing\n"
+    contents = dev.ENV_FILE.read_text(encoding="utf-8")
+    assert contents.startswith(existing)
+    assert "POSTGRES_PASSWORD=local-pass" in contents
+    assert (
+        "COMPOSE_DATABASE_URL=postgresql+psycopg://user:local-pass@postgres:5432/test_db"
+        in contents
+    )
 
 
 def test_setup_prepares_dependencies_database_and_migrations(monkeypatch):
@@ -121,6 +147,7 @@ def test_main_returns_failed_command_exit_code(monkeypatch):
 
 def test_database_commands_use_compose_without_deleting_data(monkeypatch):
     monkeypatch.setattr(dev, "require_docker_engine", lambda: None)
+    monkeypatch.setattr(dev, "ensure_env", lambda: False)
     commands = []
     monkeypatch.setattr(dev, "run_command", commands.append)
 

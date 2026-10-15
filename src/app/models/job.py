@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -17,7 +18,7 @@ from app.db.base import Base
 
 JOB_TRANSITIONS = {
     "queued": frozenset({"running", "cancelled"}),
-    "running": frozenset({"succeeded", "failed", "cancelled"}),
+    "running": frozenset({"succeeded", "failed"}),
     "succeeded": frozenset(),
     "failed": frozenset({"queued"}),
     "cancelled": frozenset(),
@@ -32,6 +33,10 @@ class Job(Base):
             name="ck_jobs_status",
         ),
         CheckConstraint("retry_count >= 0", name="ck_jobs_retry_count"),
+        CheckConstraint("attempt_count >= 0", name="ck_jobs_attempt_count"),
+        CheckConstraint(
+            "dispatch_attempt_count >= 0", name="ck_jobs_dispatch_attempt_count"
+        ),
         Index("ix_jobs_owner_created", "owner_id", "created_at"),
         Index("ix_jobs_owner_status_created", "owner_id", "status", "created_at"),
     )
@@ -49,6 +54,20 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dispatch_attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    next_dispatch_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    dispatch_lease_token: Mapped[UUID | None] = mapped_column()
+    dispatch_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    output_payload: Mapped[dict | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
