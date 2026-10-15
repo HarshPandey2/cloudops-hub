@@ -1,4 +1,5 @@
 import logging
+import time
 from uuid import UUID
 
 from app.db.session import SessionLocal
@@ -53,6 +54,7 @@ def process_job(self, job_id: str) -> None:
             "job_event": "started",
         },
     )
+    execution_started = time.monotonic()
     try:
         output = run_job_handler(claim.job_type, claim.input_payload)
     except Exception as exc:
@@ -85,6 +87,11 @@ def process_job(self, job_id: str) -> None:
                     "attempt_number": claim.attempt_count,
                     "retry_count": retry_count,
                     "job_event": "retry_scheduled",
+                    "job_status": "queued",
+                    "execution_duration_ms": round(
+                        (time.monotonic() - execution_started) * 1000, 3
+                    ),
+                    "error_category": "retryable",
                 },
             )
             return
@@ -104,6 +111,17 @@ def process_job(self, job_id: str) -> None:
                     "job_type": claim.job_type,
                     "attempt_number": claim.attempt_count,
                     "job_event": "failed",
+                    "job_status": "failed",
+                    "execution_duration_ms": round(
+                        (time.monotonic() - execution_started) * 1000, 3
+                    ),
+                    "error_category": (
+                        "invalid_payload"
+                        if isinstance(exc, JobPayloadError)
+                        else "permanent"
+                        if isinstance(exc, PermanentJobError)
+                        else "exhausted_or_unexpected"
+                    ),
                 },
             )
         return
@@ -122,5 +140,9 @@ def process_job(self, job_id: str) -> None:
                 "job_type": claim.job_type,
                 "attempt_number": claim.attempt_count,
                 "job_event": "succeeded",
+                "job_status": "succeeded",
+                "execution_duration_ms": round(
+                    (time.monotonic() - execution_started) * 1000, 3
+                ),
             },
         )

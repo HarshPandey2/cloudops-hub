@@ -140,6 +140,10 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+    # The Dockerfile's HTTP liveness probe is only valid for the API process.
+    # Dispatcher health is checked through persisted heartbeats and /health/jobs.
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:

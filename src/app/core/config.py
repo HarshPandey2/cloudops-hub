@@ -17,6 +17,12 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
 
+    DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(default=3, gt=0, le=30)
+
+    DATABASE_POOL_TIMEOUT_SECONDS: int = Field(default=5, gt=0, le=60)
+
+    HEALTH_CHECK_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0, le=30)
+
     SECRET_KEY: str
 
     ALGORITHM: str = "HS256"
@@ -54,6 +60,20 @@ class Settings(BaseSettings):
     JOB_DISPATCH_BACKOFF_SECONDS: int = Field(default=2, gt=0, le=3600)
 
     JOB_DISPATCH_BACKOFF_MAX_SECONDS: int = Field(default=300, gt=0, le=86400)
+
+    JOB_QUEUE_AGE_ALERT_SECONDS: int = Field(default=300, gt=0, le=86400)
+
+    JOB_FAILURE_WINDOW_SECONDS: int = Field(default=300, gt=0, le=86400)
+
+    JOB_FAILURE_ALERT_THRESHOLD: int = Field(default=5, gt=0, le=10000)
+
+    JOB_DISPATCHER_STALE_SECONDS: int = Field(default=30, gt=0, le=3600)
+
+    JOB_WORKER_HEARTBEAT_INTERVAL_SECONDS: int = Field(default=10, gt=0, le=300)
+
+    JOB_WORKER_HEARTBEAT_STALE_SECONDS: int = Field(default=60, gt=0, le=3600)
+
+    JOB_METRICS_CACHE_SECONDS: float = Field(default=5.0, gt=0, le=60)
 
     REDIS_CONNECT_TIMEOUT_SECONDS: float = Field(default=1.0, gt=0, le=30)
 
@@ -196,6 +216,19 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JOB_DISPATCH_BACKOFF_MAX_SECONDS must be greater than or equal to "
                 "JOB_DISPATCH_BACKOFF_SECONDS"
+            )
+
+        if self.JOB_DISPATCHER_STALE_SECONDS <= self.JOB_DISPATCH_POLL_SECONDS * 2:
+            raise ValueError(
+                "JOB_DISPATCHER_STALE_SECONDS must exceed two dispatcher poll intervals"
+            )
+
+        if (
+            self.JOB_WORKER_HEARTBEAT_STALE_SECONDS
+            <= self.JOB_WORKER_HEARTBEAT_INTERVAL_SECONDS * 2
+        ):
+            raise ValueError(
+                "JOB_WORKER_HEARTBEAT_STALE_SECONDS must exceed two worker heartbeat intervals"
             )
 
         trusted_proxies = self.FORWARDED_ALLOW_IPS.split(",")

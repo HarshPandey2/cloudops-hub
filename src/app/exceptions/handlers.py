@@ -58,7 +58,7 @@ def register_exception_handlers(
         logger.exception(
             "Unhandled exception: %s %s",
             request.method,
-            request.url.path,
+            getattr(request.scope.get("route"), "path", "unmatched"),
         )
 
         return JSONResponse(

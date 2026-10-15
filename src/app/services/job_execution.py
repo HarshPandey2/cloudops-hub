@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.models.job import Job, JobEvent
+from app.services.job_observability import update_job_metrics
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ def claim_job(
                 )
             )
 
+        previous_status = job.status
         job.status = "running"
         job.dispatch_lease_token = None
         job.dispatch_lease_expires_at = None
@@ -66,6 +68,11 @@ def claim_job(
                 event_type="started",
                 message=f"Job execution attempt {job.attempt_count} started",
             )
+        )
+        update_job_metrics(
+            db,
+            increments={"executions_started_total": 1},
+            transition=(previous_status, "running"),
         )
         claim = ClaimedJob(
             id=job.id,
@@ -95,6 +102,12 @@ def mark_job_succeeded(
         job.output_payload = output
         job.error_message = None
         job.completed_at = completed_at
+        update_job_metrics(
+            db,
+            increments={"executions_succeeded_total": 1},
+            transition=("running", "succeeded"),
+            execution_duration_seconds=_duration_since(job.started_at, completed_at),
+        )
         db.add(
             JobEvent(
                 job_id=job.id,
@@ -130,6 +143,14 @@ def schedule_job_retry(
         job.retryable = True
         job.completed_at = None
         job.error_message = safe_error[:500]
+        update_job_metrics(
+            db,
+            increments={"retries_scheduled_total": 1},
+            transition=("running", "queued"),
+            execution_duration_seconds=_duration_since(
+                job.started_at, datetime.now(UTC)
+            ),
+        )
         db.add(
             JobEvent(
                 job_id=job.id,
@@ -162,6 +183,12 @@ def mark_job_failed(
         job.retryable = retryable
         job.error_message = safe_error[:500]
         job.completed_at = completed_at
+        update_job_metrics(
+            db,
+            increments={"executions_failed_total": 1},
+            transition=("running", "failed"),
+            execution_duration_seconds=_duration_since(job.started_at, completed_at),
+        )
         db.add(JobEvent(job_id=job.id, event_type="failed", message=safe_error[:500]))
         db.commit()
         return True
@@ -180,3 +207,10 @@ def _locked_running_job(
         .with_for_update()
         .first()
     )
+
+
+def _duration_since(started_at: datetime | None, completed_at: datetime) -> float:
+    if started_at is None:
+        return 0.0
+    start = started_at.replace(tzinfo=UTC) if started_at.tzinfo is None else started_at
+    return max(0.0, (completed_at - start).total_seconds())

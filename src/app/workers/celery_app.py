@@ -1,6 +1,8 @@
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging
 
 from app.core.config import settings
+from app.core.logging import setup_logging
 
 broker_url = settings.CELERY_BROKER_URL.get_secret_value()
 
@@ -22,4 +24,10 @@ celery_app.conf.update(
     task_routes={"app.jobs.process": {"queue": "jobs"}},
     task_default_queue="jobs",
 )
-celery_app.conf.imports = ("app.workers.jobs",)
+celery_app.conf.imports = ("app.workers.jobs", "app.workers.observability")
+
+
+@celery_setup_logging.connect(weak=False)
+def configure_worker_logging(**_kwargs) -> None:
+    """Use the application's allowlisted, redacting JSON formatter in workers."""
+    setup_logging()

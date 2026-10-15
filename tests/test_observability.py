@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import sys
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -94,3 +95,41 @@ def test_json_formatter_emits_correlation_fields():
     assert payload["rate_limit_backend"] == "redis"
     assert payload["rate_limit_policy"] == "closed"
     assert payload["rate_limit_operation"] == "decision"
+
+
+def test_json_formatter_omits_sensitive_exceptions_and_unapproved_fields():
+    sensitive_values = (
+        "jwt-secret-marker",
+        "password-marker",
+        "payload-marker",
+        "credential-marker",
+    )
+    try:
+        raise ValueError(" ".join(sensitive_values))
+    except ValueError:
+        record = logging.LogRecord(
+            name="fastapi-production-api.request",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="request_failed",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+    record.request_id = "request-123"
+    record.route = "/jobs/{job_id}"
+    record.path = "/jobs/credential-marker"
+    record.authorization = "jwt-secret-marker"
+    record.password = "password-marker"
+    record.input_payload = {"value": "payload-marker"}
+
+    formatted = JsonFormatter().format(record)
+    payload = json.loads(formatted)
+
+    assert payload["request_id"] == "request-123"
+    assert payload["route"] == "/jobs/{job_id}"
+    assert payload["exception_type"] == "ValueError"
+    assert "path" not in payload
+    assert "exception" not in payload
+    for sensitive_value in sensitive_values:
+        assert sensitive_value not in formatted

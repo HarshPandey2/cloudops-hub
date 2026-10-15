@@ -6,7 +6,10 @@ from app.core.config import settings
 
 database_url = make_url(settings.DATABASE_URL)
 connect_args = (
-    {"options": "-c timezone=UTC"}
+    {
+        "options": "-c timezone=UTC",
+        "connect_timeout": settings.DATABASE_CONNECT_TIMEOUT_SECONDS,
+    }
     if database_url.get_backend_name() == "postgresql"
     else {}
 )
@@ -17,7 +20,7 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
-    pool_timeout=30,
+    pool_timeout=settings.DATABASE_POOL_TIMEOUT_SECONDS,
     pool_recycle=1800,
 )
 

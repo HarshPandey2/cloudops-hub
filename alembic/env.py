@@ -10,10 +10,12 @@ from app.models import (
     ExternalIdentity,
     Job,
     JobEvent,
+    JobMetricTotals,
     MFARecoveryCode,
     OIDCTransaction,
     OutboxMessage,
     RefreshToken,
+    ServiceHeartbeat,
     User,
 )
 

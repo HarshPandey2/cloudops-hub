@@ -10,6 +10,7 @@ publish `/metrics` directly to the internet.
 | --- | --- | --- | --- |
 | `/health/live` | The application process can serve HTTP | None | Restart the process |
 | `/health/ready` | The application can serve traffic | PostgreSQL and Redis when distributed limiting is enabled | Remove the instance from service |
+| `/health/jobs` | Job infrastructure and dispatcher/worker freshness | PostgreSQL, broker, Celery worker | Alert and inspect `checks` and `alerts` |
 
 Readiness returns HTTP `503` while PostgreSQL is unavailable. Liveness must not
 depend on PostgreSQL; otherwise a database incident can cause every application
@@ -62,6 +63,16 @@ The application exports:
   category
 - `fastapi_production_api_outbox_delivery_duration_seconds`, labelled by
   bounded message type
+- `cloudops_hub_jobs_submitted_total`, dispatch attempt/failure counters,
+  execution outcome counters, retry and cancellation counters. These are
+  persisted in PostgreSQL and shared across API, dispatcher, and worker.
+- `cloudops_hub_jobs{status="queued|running"}` and
+  `cloudops_hub_job_execution_duration_seconds`, also sourced from PostgreSQL
+- `cloudops_hub_job_queue_oldest_age_seconds`,
+  `cloudops_hub_job_failures_in_window`, dispatcher success and worker heartbeat
+  timestamps, and `cloudops_hub_job_alert{alert=...}` (1 means firing)
+- `cloudops_hub_observability_database_available`, indicating whether the
+  database snapshot was read; job series are omitted while it is unavailable
 
 Route templates are used instead of raw URLs to bound label cardinality. Protect
 the endpoint with network policy, firewall rules, or an allowlist at the reverse
@@ -85,12 +96,37 @@ uv run gunicorn -c gunicorn.conf.py app.main:app
 Do not reuse files from a previous Gunicorn run. The included Gunicorn
 configuration marks worker gauge files as dead when workers exit.
 
+Job counters and state are transactionally updated with job lifecycle changes;
+PostgreSQL remains authoritative. They are aggregates without job or owner labels
+and are exposed from a short-lived (`JOB_METRICS_CACHE_SECONDS`) scrape cache.
+`/health/jobs` includes the existing broker/worker checks and adds database,
+dispatcher, and worker-heartbeat state. The dispatcher heartbeat advances only
+after a polling cycle completes. A Celery ping is still included because a recent
+worker heartbeat alone does not prove that the broker can reach that worker.
+
+Run the standalone dispatcher alongside the API and Celery worker, using the
+same database and broker configuration:
+
+```bash
+uv run python -m app.services.job_dispatcher
+```
+
+It polls PostgreSQL, leases a bounded batch, and retries publish failures with
+bounded backoff. Alert defaults are configurable with
+`JOB_QUEUE_AGE_ALERT_SECONDS`, `JOB_FAILURE_WINDOW_SECONDS`,
+`JOB_FAILURE_ALERT_THRESHOLD`, `JOB_DISPATCHER_STALE_SECONDS`,
+`JOB_WORKER_HEARTBEAT_INTERVAL_SECONDS`, and
+`JOB_WORKER_HEARTBEAT_STALE_SECONDS`. Tune these values to the deployment's
+polling cadence and workload.
+
 ## Structured logs and correlation IDs
 
 Every application log is a single JSON object containing `timestamp`, `level`,
 `logger`, `message`, and `request_id`. HTTP completion records also contain
-`method`, canonical `client_ip`, `path`, `route`, `status_code`, and
-`duration_ms`. Treat client addresses as personal or security-sensitive data:
+`method`, canonical `client_ip`, the route template, `status_code`, and
+`duration_ms`. Raw URL paths and exception messages are omitted to reduce the
+chance of recording user supplied secrets; exception records keep only the
+exception class. Treat client addresses as personal or security-sensitive data:
 restrict log access and choose a retention period appropriate to local policy.
 
 When a valid OpenTelemetry span is active, the same JSON record also contains
@@ -100,8 +136,9 @@ workflow.
 
 Clients may send `X-Request-ID` using 1-128 letters, digits, dots, underscores,
 colons, or hyphens. Invalid or missing values are replaced with a generated ID,
-and the effective value is returned in the response header. Forward this header
-through proxies and include it in downstream service logs.
+and the effective value is returned in the response header. Do not put tokens,
+credentials, or other secrets in this header. Forward it through proxies and
+include it in downstream service logs.
 
 ## OpenTelemetry tracing
 

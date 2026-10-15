@@ -209,10 +209,8 @@ def test_job_health_distinguishes_available_broker_from_missing_worker(
     monkeypatch.setattr(job_health.celery_app.control, "ping", lambda **_: [])
     missing_worker = client.get("/health/jobs", headers=owner_headers)
     assert missing_worker.status_code == 503
-    assert missing_worker.json()["checks"] == {
-        "broker": "ok",
-        "worker": "unavailable",
-    }
+    assert missing_worker.json()["checks"]["broker"] == "ok"
+    assert missing_worker.json()["checks"]["worker"] == "unavailable"
 
     monkeypatch.setattr(
         job_health.celery_app.control,
@@ -220,7 +218,9 @@ def test_job_health_distinguishes_available_broker_from_missing_worker(
         lambda **_: [{"jobworker": {"ok": "pong"}}],
     )
     healthy = client.get("/health/jobs", headers=owner_headers)
-    assert healthy.status_code == 200
+    # A live Celery worker alone is insufficient if the persisted dispatcher
+    # heartbeat is stale or missing.
+    assert healthy.status_code == 503
     assert healthy.json()["checks"]["worker"] == "available"
 
 

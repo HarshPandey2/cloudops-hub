@@ -1,6 +1,8 @@
 """Leased PostgreSQL-to-Celery dispatch for durable job recovery."""
 
 import logging
+import os
+import socket
 from datetime import UTC, datetime, timedelta
 from math import pow
 from typing import Callable
@@ -11,6 +13,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.models.job import Job, JobEvent
+from app.services.job_observability import (
+    record_service_heartbeat,
+    update_job_metrics,
+)
 
 logger = logging.getLogger("fastapi-production-api.job_dispatcher")
 Enqueue = Callable[[str], object]
@@ -58,6 +64,7 @@ def dispatch_queued_jobs(
             job.dispatch_lease_expires_at = lease_until
             job.dispatch_attempt_count += 1
             leases.append((job.id, token))
+        update_job_metrics(db, increments={"dispatch_attempts_total": len(leases)})
         db.commit()
 
     published = 0
@@ -71,6 +78,10 @@ def dispatch_queued_jobs(
             continue
         if outcome == "published":
             published += 1
+            logger.info(
+                "job_dispatched",
+                extra={"job_id": str(job_id), "job_event": "dispatched"},
+            )
     return published
 
 
@@ -116,6 +127,7 @@ def _defer_locked_job(job: Job, now: datetime, db: Session) -> None:
     job.next_dispatch_at = now + timedelta(seconds=delay)
     job.dispatch_lease_token = None
     job.dispatch_lease_expires_at = None
+    update_job_metrics(db, increments={"dispatch_failures_total": 1})
     db.add(
         JobEvent(
             job_id=job.id,
@@ -132,6 +144,7 @@ def dispatcher_loop() -> None:
     from app.db.session import SessionLocal
     from app.workers.jobs import process_job
 
+    instance_id = f"{socket.gethostname()}:{os.getpid()}"[:128]
     logger.info("job_dispatcher_started", extra={"job_event": "dispatcher_started"})
     while True:
         try:
@@ -139,11 +152,26 @@ def dispatcher_loop() -> None:
                 SessionLocal,
                 lambda job_id: process_job.apply_async(args=[job_id], queue="jobs"),
             )
+            record_service_heartbeat(
+                SessionLocal,
+                service="dispatcher",
+                instance_id=instance_id,
+            )
         except Exception:
             logger.exception(
                 "job_dispatcher_poll_failed",
                 extra={"job_event": "dispatcher_poll_failed"},
             )
+            try:
+                record_service_heartbeat(
+                    SessionLocal,
+                    service="dispatcher",
+                    instance_id=instance_id,
+                    successful=False,
+                    error_category="cycle_error",
+                )
+            except Exception:
+                logger.error("job_dispatcher_heartbeat_failed")
         time.sleep(settings.JOB_DISPATCH_POLL_SECONDS)
 
 

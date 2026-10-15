@@ -168,7 +168,7 @@ and safe extension points.
 | --- | --- | --- |
 | `GET` | `/health/live` | Process liveness; no dependency checks |
 | `GET` | `/health/ready` | Traffic readiness and required dependencies |
-| `GET` | `/health/jobs` | Celery broker and worker availability |
+| `GET` | `/health/jobs` | Database, broker, worker ping, and persisted dispatcher/worker heartbeat health |
 | `GET` | `/metrics` | Prometheus metrics; restrict to monitoring networks |
 | `POST` | `/register/` | Create a user |
 | `POST` | `/login/` | Issue access and refresh tokens |
@@ -253,7 +253,11 @@ the status and result, and `GET /jobs/{id}/history` for lifecycle events. Use
 `POST /jobs/{id}/cancel` while queued or `POST /jobs/{id}/retry` after a
 retryable failure. `/health/jobs` distinguishes broker connectivity from a
 responding worker; `/health/ready` does not require a worker, so the API remains
-available while workers are stopped.
+available while workers are stopped. The Docker image uses `/health/live` as
+its API liveness probe; the Celery worker overrides it with a broker ping. The
+dispatcher disables that HTTP probe and is monitored through persisted
+heartbeats on `/health/jobs` and the metrics described in
+[MONITORING.md](MONITORING.md).
 
 `CELERY_BROKER_URL` selects the broker. `JOB_DISPATCH_POLL_SECONDS`,
 `JOB_DISPATCH_BATCH_SIZE`, and `JOB_DISPATCH_LEASE_SECONDS` control dispatcher

@@ -94,5 +94,7 @@ def test_json_log_formats_exception():
     formatter = JsonFormatter()
     payload = json.loads(formatter.format(record))
 
-    assert payload["message"] == "operation-failed"
-    assert "RuntimeError: expected failure" in payload["exception"]
+    assert payload["message"] == "exception"
+    assert payload["exception_type"] == "RuntimeError"
+    assert "exception" not in payload
+    assert "expected failure" not in json.dumps(payload)

@@ -25,6 +25,7 @@ def _current_trace_context() -> tuple[str | None, str | None]:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         trace_id, span_id = _current_trace_context()
+        has_exception = bool(record.exc_info and record.exc_info[0] is not None)
 
         payload = {
             "timestamp": datetime.fromtimestamp(
@@ -33,7 +34,7 @@ class JsonFormatter(logging.Formatter):
             ).isoformat(timespec="milliseconds"),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": "exception" if has_exception else record.getMessage(),
             "request_id": getattr(
                 record,
                 "request_id",
@@ -50,7 +51,6 @@ class JsonFormatter(logging.Formatter):
         for field in (
             "method",
             "client_ip",
-            "path",
             "route",
             "status_code",
             "duration_ms",
@@ -66,6 +66,9 @@ class JsonFormatter(logging.Formatter):
             "attempt_number",
             "retry_count",
             "job_event",
+            "job_status",
+            "execution_duration_ms",
+            "error_category",
             "oidc_cache_event",
             "oidc_cache_document",
             "tracing_service",
@@ -76,8 +79,8 @@ class JsonFormatter(logging.Formatter):
             if value is not None:
                 payload[field] = value
 
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+        if has_exception:
+            payload["exception_type"] = record.exc_info[0].__name__
 
         return json.dumps(
             payload,

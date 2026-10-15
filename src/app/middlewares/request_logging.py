@@ -72,7 +72,6 @@ def setup_request_logging(
                 extra={
                     "method": method,
                     "client_ip": resolve_client_ip(request),
-                    "path": request.url.path,
                     "route": route,
                     "status_code": status_code,
                     "duration_ms": round(duration_seconds * 1000, 2),

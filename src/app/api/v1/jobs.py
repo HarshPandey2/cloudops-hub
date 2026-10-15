@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.job import JobCreate, JobEventResponse, JobResponse
 from app.services.job_dispatcher import dispatch_queued_jobs
 from app.services.job_handlers import JobPayloadError, validate_job_input
+from app.services.job_observability import update_job_metrics
 from app.workers.jobs import process_job
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -58,6 +59,11 @@ def submit_job(
     db.add(job)
     db.flush()
     db.add(JobEvent(job_id=job.id, event_type="submitted", message="Job queued"))
+    update_job_metrics(
+        db,
+        increments={"jobs_submitted_total": 1},
+        transition=("new", "queued"),
+    )
     db.commit()
     db.refresh(job)
     dispatch_sessions = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
@@ -164,6 +170,11 @@ def cancel_job(
         )
     job.status = "cancelled"
     job.completed_at = datetime.now(UTC)
+    update_job_metrics(
+        db,
+        increments={"cancellations_total": 1},
+        transition=("queued", "cancelled"),
+    )
     db.add(
         JobEvent(
             job_id=job.id, event_type="cancelled", message="Job cancelled by owner"
@@ -209,6 +220,7 @@ def retry_job(
     job.dispatch_lease_token = None
     job.dispatch_lease_expires_at = None
     job.next_dispatch_at = datetime.now(UTC)
+    update_job_metrics(db, transition=("failed", "queued"))
     db.add(
         JobEvent(
             job_id=job.id,

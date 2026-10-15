@@ -65,7 +65,8 @@ then stop it without deleting database data using `docker compose down`.
 
 The full stack also starts the Celery `worker` service. Follow its logs with
 `docker compose logs -f worker`; the worker health check uses Celery's worker
-ping, while `/health/jobs` reports broker and worker availability separately.
+ping, while `/health/jobs` reports database and broker availability, a worker
+ping, and persisted dispatcher and worker-heartbeat freshness.
 The API readiness check does not depend on a running worker. If you run the API
 on the host, start a worker in another terminal after `python scripts/dev.py
 setup`:

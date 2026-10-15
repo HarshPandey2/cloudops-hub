@@ -39,6 +39,7 @@ class Job(Base):
         ),
         Index("ix_jobs_owner_created", "owner_id", "created_at"),
         Index("ix_jobs_owner_status_created", "owner_id", "status", "created_at"),
+        Index("ix_jobs_status_created", "status", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -73,7 +74,10 @@ class Job(Base):
 
 class JobEvent(Base):
     __tablename__ = "job_events"
-    __table_args__ = (Index("ix_job_events_job_created", "job_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_job_events_job_created", "job_id", "created_at"),
+        Index("ix_job_events_type_created", "event_type", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[UUID] = mapped_column(
